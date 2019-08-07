@@ -1,5 +1,6 @@
 #Importing packages
-import requests, bs4, re, json
+import requests, bs4, re, json, os, copy
+from collections import Counter
 
 #Reusable Functions
 def retrieve_links(url, href = re.compile('(?s).*'), string = re.compile('(?s).*')):
@@ -17,12 +18,26 @@ def retrieve_links(url, href = re.compile('(?s).*'), string = re.compile('(?s).*
     return ls
 
 def retrieve_html(url):
+    """retrieve all links within a text and prints it out to observe
+    """
     res = requests.get(url)
     soup = bs4.BeautifulSoup(res.text, 'lxml')
     for link in soup.find_all('a'):
         print(link)
 
+def store_dic(dic, name):
+    """Saves dic as json file in current directory
+    """
+    with open(name, 'w') as file:
+        json.dump(dic, file)
 
+def store_soup(soup, name):
+    """saves soup object as text file in current directory
+    """
+    with open(name, 'w') as file:
+        file.write(soup.prettify())
+
+#Workflow
 #Obtain a list of individual links for each crypotcurrency from allcryptowhitepapers.com
 url = 'https://www.allcryptowhitepapers.com/whitepaper-overview/'
 temp_ls = retrieve_links(url)
@@ -36,7 +51,8 @@ last = 'https://www.allcryptowhitepapers.com/about-us/'
 first_index = temp_ls.index(first)
 last_index = temp_ls.index(last)
 crypto_ls = temp_ls[first_index+1:last_index] #final crypto list
-assert len(crypto_ls) == 2826 #check if number of links tally up, accurate as of 5.8.2019
+crypto_ls = list(set(crypto_ls))
+assert len(crypto_ls) == 2826 #check if number of links tally up, accurate as of 7.8.2019
 
 #Generate a list of all the names of cryptocurrencies listed on allcryptowhitepaper
 crypto_names = []
@@ -48,10 +64,11 @@ assert len(crypto_names) == len(crypto_ls)
 
 #Combine both the name and link lists together into a single dictionary
 link_name_dic = dict(zip(crypto_ls, crypto_names))
+assert len(link_name_dic.values()) == 2817 #notice it is 2817 instead of 2828, i.e. there are 9 duplicates! Of note, bismuth is still duplicated in this dictionary!
+store_dic(link_name_dic, 'link_name.json') #save this in case
 
-#Find the link in each crypto whitepaper page that points to a place to dl the whitepaper
-#The general idea is that the download link has the string ('cryptocurrency' + 'whitepaper), so we can try to search for that.
-test_size = len(crypto_ls) 
+#Find all links without the div class = entry-content tag to filter out redundant links, then search for the specific link with "whitepaer" in the .string
+test_size = len(crypto_ls)
 crypto_ls_test = crypto_ls[:test_size]
 name_dl_dic = {}
 problem_ls = []
@@ -59,25 +76,70 @@ for link in crypto_ls_test:
     req2 = requests.get(link)
     soup2 = bs4.BeautifulSoup(req2.text, 'lxml')
     name = link_name_dic[link]
-    pattern = name + '[\s]*whitepaper'
     try:
-        name_dl_dic[name] = soup2.find('a', string = re.compile(pattern, re.IGNORECASE))['href']
+        for div in soup2.find_all("div", {"class": "entry-content"}):
+            for dl_link in div.find_all('a', string = re.compile("whitepaper", re.IGNORECASE)):
+                name_dl_dic[name] = dl_link['href']
     except:
         name_dl_dic[name] = None
         problem_ls.append(link)
 Success_rate = (test_size - len(problem_ls))/test_size * 100
-print(Success_rate) #70.42
+print(Success_rate) #100%, no errors woohoo!
 
-#Store the dictionary into a json file
-with open('crypto_dl.json', 'w') as file:
-    json.dump(name_dl_dic, file)
+#Edit bitcoin key as it retrieved the comic link
+name_dl_dic['Bitcoin'] = 'https://www.bitcoin.com/bitcoin.pdf'
 
-#Test area to see the link with html tags of the crypto page
-test = 'https://www.allcryptowhitepapers.com/unus-sed-leo-whitepaper/'
-retrieve_html(test)
+#Count the number of cryptos that do not have a download link
+counter = Counter(list(name_dl_dic.values()))
+print(len(name_dl_dic)) #2112
+print(counter['']) #66 links self referencing itself (i.e. point back to the allcryptowhitepaper site)
+print(len(set(link_name_dic.values())- set(name_dl_dic.keys()))) #705 no links at all
+#705 + 2112 = 2817 it tallies!
+
+#Store the download dictionary into a json file 
+store_dic(name_dl_dic, 'crypto_dl.json')
+
+#Remove the cryptocurrencies with the '' values
+remove_ls = [key for key,value in name_dl_dic.items() if value == '']
+for name in remove_ls:
+    del name_dl_dic[name]
+assert len(name_dl_dic) == 2112-66 #2046
+
+#Store the final download dictionary into a json file
+store_dic(name_dl_dic, 'crypto_dl_filtered.json')
+
+#make a directory to store the files
+current_dir = os.getcwd()
+os.mkdir(current_dir + '\whitepapers')
+for name in name_dl_dic.keys():
+    name = name.replace('?', '-')
+    name = name.replace('/', '-')
+    try:
+        os.mkdir(current_dir + '\whitepapers\\' + name)
+    except Exception as e:
+        print(name,e)
+
+#One error was thrown, SafeCoin vs Safecoin, another duplicate!
+del name_dl_dic['Safecoin'] #final is 2045
+store_dic(name_dl_dic, 'crypto_final.json')
+
+
+#Test out downloading a single link [WORK IN PROGRESS]
+name = crypto_names[5]
+test_url = name_dl_dic[name]
+dl_req = requests.get(test_url)
+content_type = dl_req.headers.get('content-type')
+if 'application/pdf' in content_type:
+    ext = '.pdf'
+elif 'text/html' in content_type:
+    ext = '.html'
+else:
+    ext = ''
+    print('Unknown format')
+
+
 
 #OLD CODES/IDEAS
-
 #Extract names from the links in crypto_ls [NOT an ideal solution]
 # def extract_names(link):
 #     try:
