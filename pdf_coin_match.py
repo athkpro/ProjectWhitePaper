@@ -57,6 +57,11 @@ pdf4_ls_edit = [retrieve_name(title) for title in pdf4_ls]
 for name in pdf4_ls_edit:
   pdf_ls.append(name)
 
+#ALternative method
+# Fresh download of carol's assigned pdfs, manual download the remaining pdfs from our gdrive and combine them into a folder called 'combined'
+import os
+pdf_ls = os.listdir('combined')
+
 #Matching our pdf_ls with the coin_names from coin gecko
 def standardise(name):
   """
@@ -86,7 +91,7 @@ coin_dic = dict(zip(coin_names_standardised, coin_names))
 
 #checking how many match between the two lists using sets in python
 match_set = set(pdf_ls_standardised).intersection(set(coin_names_standardised))
-print(len(match_set)) #759 match
+print(len(match_set)) #889 matched
 matchless_set = set(pdf_ls_standardised) - set(coin_names_standardised)
 print(matchless_set)
 
@@ -117,21 +122,51 @@ for name in coin_id_ls:
     latest_date = price_list[-1][0]
     latest_price = price_list[-1][1]
     coin_prices_dic[name] = [first_date, first_price, latest_date, latest_price]
-    print(name, 'successly retrieved')
+    print(name, 'successful retrieval')
   except Exception as e:
     print(name, e)
     error.append(name)
 print(len(coin_prices_dic))
 
 #combine coin prices with corresponding with our data frame
-prices_df = pd.DataFrame.from_dict(coin_prices_dic, orient = 'index', columns = ['first_date', 'first_price', 'latest_date [5/9/19]', 'latest_price'])
-# data = data.set_index('coin_id', inplace = True)
+prices_df = pd.DataFrame.from_dict(coin_prices_dic, orient = 'index', columns = ['first_date', 'first_price', 'latest_date [9/9/19]', 'latest_price'])
+data.set_index('coin_id', inplace = True)
 df = data.join(prices_df)
 df = df.reset_index()
 
+#Create some new variables
+df['price_change'] = df['latest_price'] - df['first_price']
+df['price_drop_true'] = df['price_change'].apply(lambda x: 1 if x < 0 else 0)
+
 #sort out timestamp to a  datetime object
 df['first_date'] = df['first_date'].apply(lambda x: pd.Timestamp.fromtimestamp(x/1000))
-df['latest_date [5/9/19]'] = df['latest_date [5/9/19]'].apply(lambda x: pd.Timestamp.fromtimestamp(x/1000))
+df['latest_date [9/9/19]'] = df['latest_date [9/9/19]'].apply(lambda x: pd.Timestamp.fromtimestamp(x/1000))
 
-#Output csv as df.csv
-df.to_csv('df.csv', index = False, date_format = r'%d/%m/%Y')
+#filter out only pdfs with prices to a new folder called final_pdfs
+import glob
+import shutil
+pdf_names = df['pdf_name'].tolist() 
+for name in pdf_names: 
+  src = "C:/Users/Andy/OneDrive/UpLevel/combined/" + name
+  dest = "C:/Users/Andy/OneDrive/UpLevel/match/" + name
+  shutil.move(src, dest)
+pdf_list = glob.glob(r"C:/Users/Andy/OneDrive/UpLevel/match/*/*.pdf")
+len(pdf_list) #It's 886 instead of 889 (3 papers did not have .pdfs!)
+set(pdf_names) - set([name.split('\\')[-2] for name in pdf_list]) 
+#'MASTERNET', 'Obsidian', 'TeslaCoin' Remove these three from the dataframe!
+for pdf in pdf_list:
+  name = pdf.split('\\')[-2]
+  src = pdf
+  dest = "C:/Users/Andy/OneDrive/UpLevel/pdfs_final/" + name + '.pdf'
+  shutil.copy(src, dest)
+
+#edit df_final and output as df_final
+df.set_index('pdf_name', inplace = True)
+for name in ['MASTERNET', 'Obsidian', 'TeslaCoin' ]:
+  df.drop(name, inplace = True)
+df.to_csv('df_final.csv', index = False, date_format = r'%d/%m/%Y')
+
+#double check if the pdf files in our folder correspond to the coins in the dataframe
+folder_ls = [x.replace('.pdf', '') for x in os.listdir('pdfs_final')]
+pdf_names = df['pdf_name'].tolist()
+set(folder_ls) - set(pdf_names) == set()
